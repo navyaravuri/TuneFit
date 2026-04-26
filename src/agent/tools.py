@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional
 from ..core.catalog import load_catalog
 from ..core.models import ScoredSong, UserProfile
 from ..core.recommender import score_catalog
+from .llm_client import LLMClient
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +63,7 @@ class ReasoningStep:
     timestamp: str  # datetime.now().strftime("%H:%M:%S")
 
 
-def extract_preferences(user_message: str, llm_client: Any, steps: list) -> Dict[str, Any]:
+def extract_preferences(user_message: str, llm_client: LLMClient, steps: list) -> Dict[str, Any]:
     """Call the LLM to parse user intent into a structured preferences dict."""
     prompt = _EXTRACTION_PROMPT.format(message=user_message)
     logger.debug("extract_preferences LLM call | prompt_len=%d", len(prompt))
@@ -165,7 +166,7 @@ def format_response(
     results: List[ScoredSong],
     confidence: dict,
     preferences: dict,
-    llm_client: Any,
+    llm_client: LLMClient,
     steps: list,
 ) -> str:
     """Ask the LLM to write a friendly recommendation summary."""
