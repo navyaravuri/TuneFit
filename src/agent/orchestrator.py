@@ -49,7 +49,7 @@ class AgentOrchestrator:
         try:
             preferences = tools.extract_preferences(user_message, self.llm, steps)
             scored = tools.score_and_retrieve(preferences, steps)
-            confidence = tools.evaluate_confidence(scored, steps)
+            confidence = tools.evaluate_confidence(scored, preferences, steps)
             response = tools.format_response(scored, confidence, preferences, self.llm, steps)
         except Exception:
             logger.error("Agent run failed:\n%s", traceback.format_exc())

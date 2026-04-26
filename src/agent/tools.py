@@ -131,22 +131,32 @@ def score_and_retrieve(preferences: Dict[str, Any], steps: list) -> List[ScoredS
     return results
 
 
-def evaluate_confidence(results: List[ScoredSong], steps: list) -> dict:
+def evaluate_confidence(results: List[ScoredSong], preferences: Dict[str, Any], steps: list) -> dict:
     """Assess how well the top results matched the user's preferences."""
     top_score = results[0].total_score if results else 0.0
     confidence = top_score / 9.0
-    quality = "high" if confidence > 0.7 else ("medium" if confidence > 0.4 else "low")
 
     warning: Optional[str] = None
-    if not any("genre_match" in r.score_breakdown for r in results):
-        warning = "No songs matched your preferred genre."
-    elif not any(
-        "mood_exact" in r.score_breakdown or "mood_related" in r.score_breakdown
-        for r in results
-    ):
-        warning = "Weak mood match — your mood preference was not found."
-    elif confidence < 0.35:
-        warning = "Conflicting preferences may have reduced match quality."
+
+    # Detect contradictory numeric preferences before inspecting results.
+    # High energy + high acousticness never co-occur in the catalog, so any
+    # request asking for both cannot be satisfied regardless of score.
+    energy = float(preferences.get("target_energy", 0.5))
+    acousticness = float(preferences.get("target_acousticness", 0.5))
+    if energy > 0.65 and acousticness > 0.65:
+        warning = "Conflicting preferences detected: high energy and high acousticness rarely appear together. Results may not fully match your request."
+        quality = "medium" if confidence > 0.4 else "low"
+    else:
+        quality = "high" if confidence > 0.7 else ("medium" if confidence > 0.4 else "low")
+        if not any("genre_match" in r.score_breakdown for r in results):
+            warning = "No songs matched your preferred genre."
+        elif not any(
+            "mood_exact" in r.score_breakdown or "mood_related" in r.score_breakdown
+            for r in results
+        ):
+            warning = "Weak mood match — your mood preference was not found."
+        elif confidence < 0.35:
+            warning = "Conflicting preferences may have reduced match quality."
 
     steps.append(ReasoningStep(
         tool_name="evaluate_confidence",

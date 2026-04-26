@@ -62,7 +62,7 @@ TEST_CASES = [
         "expected_moods":  [],
         "min_confidence": 0.0,
         "adversarial":    True,
-        "adversarial_check": "low_confidence",
+        "adversarial_check": "warning",
     },
 ]
 
