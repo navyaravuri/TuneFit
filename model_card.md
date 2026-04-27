@@ -1,91 +1,81 @@
-# 🎧 Model Card: Music Recommender Simulation
+# 🎵 Model Card: TuneFit 2.0
 
 ## 1. Model Name
 
-**TuneFit 1.0**
+**TuneFit 2.0** — Conversational Agentic Music Recommender
 
 ---
 
 ## 2. Intended Use
 
-TuneFit 1.0 is a classroom simulation of how content-based music recommendation works. It is not meant for real users or production use — the catalog is tiny and the preferences are hand-coded. The goal is to show how a system can take a description of someone's taste and turn it into a ranked list of songs by doing math on audio features. It assumes the user can describe what they want in advance (preferred genre, mood, energy level, etc.), which is a simplification of how real music apps work. Think of it as a teaching tool, not a product.
+TuneFit 2.0 is a conversational music recommendation system that accepts natural language input and returns ranked song suggestions with full reasoning transparency. It is designed as a portfolio demonstration of applied AI engineering — specifically how to combine an LLM with a deterministic scoring engine in a way that is auditable, testable, and honest about its own limitations. The system is not intended for production use; the catalog is intentionally small (18 songs) to keep every result manually verifiable. The primary audience is anyone evaluating how an agentic AI pipeline can be structured responsibly.
 
 ---
 
-## 3. How the Model Works
+## 3. How the System Works
 
-The idea is simple: every song in the catalog gets a score based on how closely it matches what the user said they want. The closer a song is to the user's preferences, the higher its score.
+TuneFit 2.0 runs a four-tool agent loop on every user query:
 
-There are two types of signals the model uses. The first is labels — does the song's genre match the user's favorite genre? Does its mood match? These are worth fixed bonus points: a genre match gives +2.0 and an exact mood match gives +1.5. If the mood isn't an exact match but is in the same family (for example, "relaxed" when the user asked for "chill"), the song still gets partial credit of +0.75.
+**Tool 1 — extract_preferences:** The user's natural language message is sent to a Groq-hosted LLM (llama-3.3-70b-versatile), which returns a structured JSON object containing seven preference values: favorite genre, favorite mood, target energy, target acousticness, target valence, target danceability, and target tempo. If the LLM response cannot be parsed, the system falls back to sensible defaults rather than crashing.
 
-The second type is audio features. The model looks at five numbers for each song — energy, acousticness, valence (how happy or sad it sounds), danceability, and tempo — and compares each one to the user's target. The closer the song's value is to the target, the more points it earns. Higher-weighted features like energy and acousticness can contribute up to 1.25 points each. Tempo is treated differently because it's measured in beats per minute instead of a 0–1 scale, so the gap is divided by 100 before scoring.
+**Tool 2 — score_and_retrieve:** The structured preferences are passed to the TuneFit 1.0 scoring engine — a fully deterministic function with no LLM involvement. Each of the 18 catalog songs is scored across seven dimensions (genre match, mood match, energy proximity, acousticness proximity, valence proximity, tempo proximity, danceability proximity), then ranked. A diversity penalty deducts points for repeated artists (−1.5) and repeated genre groups (−0.75) to prevent the top 5 from clustering around one style.
 
-Once every song has a total score, they are sorted from highest to lowest and the top five are returned, along with a plain-language explanation of what contributed to each score.
+**Tool 3 — evaluate_confidence:** The top results are evaluated for quality. Confidence is calculated as `top_score / 9.0`. Conflicting preferences (high energy + high acousticness, which no catalog song can satisfy simultaneously) are detected directly from the extracted preferences and surface a warning with capped confidence. Additional warnings fire when the preferred genre or mood is absent from any top result.
+
+**Tool 4 — format_response:** The ranked results, confidence level, and any warnings are sent back to the LLM, which writes a 3–4 sentence natural language summary. If this call fails, a hardcoded fallback response is returned instead.
+
+Every tool logs its input and output as a timestamped `ReasoningStep`, which is rendered in the Streamlit UI so users can inspect the full decision chain.
 
 ---
 
 ## 4. Data
 
-The catalog contains 18 songs. Each song has seven attributes: genre, mood, energy (0–1), acousticness (0–1), valence (0–1), danceability (0–1), and tempo in beats per minute. The catalog covers 15 genres including lofi, rock, classical, hip-hop, metal, folk, blues, r&b, country, edm, and more, and 12 moods ranging from chill and focused to angry, euphoric, and romantic. Eight songs were added during development to expand genre and mood coverage beyond the original starter set.
-
-The dataset is very small and unevenly distributed. Lofi has three songs and pop has two, but every other genre has exactly one. This means the model cannot compare multiple options within most genres — there is only one classical song, one rock song, one jazz song, and so on. Musical tastes that don't map onto any existing genre or mood label in the catalog (reggae, for example) will never get a genre match at all. The data reflects a narrow slice of musical diversity and should not be taken as representative.
+The catalog contains 18 songs spanning 15 genres and 12 moods. Each song has seven attributes: genre, mood, energy (0–1), acousticness (0–1), valence (0–1), danceability (0–1), and tempo in BPM. The distribution is uneven — lofi has three songs, pop has two, and every other genre has exactly one. This means the scoring engine cannot compare multiple options within most genres. The catalog skews toward Western popular music styles; genres common in other markets (reggae, afrobeat, bossa nova, K-pop) are not represented.
 
 ---
 
 ## 5. Strengths
 
-The system works best when the user's preferences align closely with a well-represented genre. The Chill Lofi profile is the clearest example — three lofi songs exist in the catalog, all with consistent audio features, and the top three results all made intuitive sense with high scores above 8.0. The mood soft-matching also works well in practice: a user asking for "chill" music still surfaces "relaxed" and "focused" songs in the lower ranks rather than leaving those slots empty, which feels more useful than a strict binary match. The reasons printed alongside each result make the scoring transparent — you can see exactly why a song ranked where it did, which is something real recommenders rarely show you.
+The system works best when a user's preferred genre is well-represented in the catalog (lofi, in particular, has three songs with consistent audio features and returns high-confidence results reliably). The mood soft-matching logic — where "relaxed" counts as a partial match for "chill" at 0.75 points instead of requiring an exact match — makes recommendations feel more natural than strict binary matching would. The reasoning trace gives users visibility into exactly why each song ranked where it did, which is rare in recommendation systems. The LLM is isolated to language tasks only; it cannot alter which songs appear in the ranked output, which makes the recommendations auditable.
 
 ---
 
 ## 6. Limitations and Bias
 
-The most significant weakness is genre monopoly: 13 of the 15 genres in the catalog have exactly one song, which means the +2.0 genre bonus permanently locks that single song into the top position for any user of that genre — even when it mismatches every numeric target. Testing confirmed this directly: a user asking for high-energy classical music received Midnight Sonata (energy 0.22) as their top result because the genre label outweighed five badly-scored audio features combined. A second structural bias exists in the relationship between energy and acousticness: every high-energy song in the catalog has very low acousticness and vice versa, with no songs occupying the high-energy acoustic space, so a user who enjoys energetic acoustic music (such as live folk or acoustic punk) cannot be matched accurately — the two most heavily weighted features point in opposite directions with nothing in the catalog to satisfy both. Finally, when a user's preferred genre does not appear in the catalog at all, the maximum achievable score silently drops from 9.0 to 7.0 because the genre bonus never fires, but the output still displays scores out of 9.0 with no warning that the genre preference went completely unmet — a quiet failure that is easy to miss.
+**Genre anchoring:** With one song per genre in most cases, the +2.0 genre bonus permanently locks that song into first place regardless of how poorly its audio features match the user's targets. A user asking for high-energy classical music receives a quiet piano piece at #1 because the genre label outweighs five badly-scored audio dimensions.
+
+**Hand-coded mood groups:** The mood groupings (chill/relaxed/focused, happy/euphoric/energetic, sad/melancholic/moody, etc.) were defined by a single developer based on intuition. They reflect one cultural framing of emotional categories and may not generalize across users or backgrounds.
+
+**LLM non-determinism:** The same natural language input can produce different extracted preferences across runs, meaning identical queries may return different rankings. This is inherent to the LLM layer and cannot be eliminated without caching or mocking.
+
+**LLM conflict smoothing:** When preferences are contradictory (e.g., "high energy but very acoustic"), the LLM tends to resolve the contradiction by producing moderate values rather than faithfully passing the contradiction through. TuneFit 2.0 addresses this by detecting the conflict directly in the extracted preferences before scoring, rather than relying on the score to reveal it.
+
+**Catalog ceiling:** When a user's preferred genre is not in the catalog, the maximum achievable score is 7.0 out of 9.0 (the genre bonus can never fire). The system now surfaces a warning when this happens, but the underlying ceiling is a data problem, not a logic problem.
 
 ---
 
-## 7. Evaluation
+## 7. Evaluation and Testing Results
 
-Five user profiles were tested: Chill Lofi, High-Energy Rock, Deep Intense Rock, a Classical adversarial profile designed to expose genre-anchoring bias, and a Reggae profile where the genre does not appear in the catalog at all.
+**Unit tests (`tests/test_recommender.py`):** Five pytest tests run against the scoring engine in complete isolation — no LLM calls, no network, no file I/O. They verify exact match scoring (≥ 8.0 / 9.0), that the genre bonus is worth exactly 2.0 points, that a related-mood match scores 0.75 rather than the 1.5 exact-match bonus, that an unknown genre produces results without raising an exception, and that `top_k` returns exactly the requested number of results. All 5 passed.
 
-**Chill Lofi** returned Library Rain and Midnight Coding tied at 8.71/9.0, with Focus Flow close behind at 8.12. All three are lofi songs, and the top two both carry an exact mood match — the results matched intuition closely.
+**Evaluation harness (`tests/test_harness.py`):** Six end-to-end test cases run through the full live pipeline with real LLM calls. Four semantic cases (chill study, high-energy workout, happy pop, late-night jazz) check that the correct genres and moods surface in the top 3 and that confidence meets a minimum threshold. Two adversarial cases check structural behavior: that an unknown genre triggers a warning, and that conflicting preferences (high energy + high acousticness) trigger a warning and capped confidence. All 6 passed.
 
-**High-Energy Rock** correctly surfaced Storm Runner (8.37) as a clear #1, with a gap of over 2.5 points to #2 Gym Hero. Because there is only one rock song in the catalog, the genre bonus had nowhere to spread and the remaining results were filled by non-rock songs with strong numeric proximity.
-
-**Deep Intense Rock** also returned Storm Runner at #1 (7.22), but with a smaller lead than High-Energy Rock because its target values (energy=0.97, tempo=165, angry mood) were a closer numeric fit for Blackout Riff (metal) than for Storm Runner (rock). The genre label was the only reason Storm Runner won.
-
-**Classical adversarial** — the most revealing test — returned Midnight Sonata at #1 (5.30) despite targeting energy=0.95, acousticness=0.05, and tempo=160, the exact opposite of Midnight Sonata's actual values (energy=0.22, acousticness=0.96, tempo=68). Blackout Riff, which was numerically almost perfect for the targets, ranked #2 at 5.33 — losing by only 0.06 points because it had no genre or mood bonus to draw from.
-
-**Reggae (no genre in catalog)** showed the system fall back cleanly to mood and numeric proximity, with Focus Flow at 5.30 and a tight cluster below it. However, the scores displayed as out of 9.0 with no indication that the genre bonus was permanently unavailable, making the results appear weaker than expected without explanation.
-
-Two experiments were also run to stress-test the weights. Doubling the energy weight and halving the genre weight fixed the Classical adversarial problem but broke the rock profiles. Removing mood matching entirely caused the Chill Lofi profile to surface a "focused" study song as its top result instead of an actual chill track, showing that mood is a load-bearing signal the system cannot function well without. The most surprising finding overall was that Storm Runner and Blackout Riff each appeared in the top 3 across three of the five profiles — including profiles where neither had any genre or mood match — confirming that a small catalog amplifies the influence of individual songs regardless of weight tuning.
-
-A diversity penalty was then added to the recommendation logic to address this. Artist repeats carry a -1.50 deduction and genre-group repeats (defined by a GENRE_GROUPS lookup that treats rock and metal as the same group, jazz and blues as the same group, and so on) carry a -0.75 deduction; both penalties can stack on the same song. This resolved the co-appearance problem in the Classical adversarial profile, where Storm Runner was correctly pushed to #5 after Blackout Riff claimed the metal/rock group slot at #2, and in High-Energy Rock, where Blackout Riff dropped from #3 to #5. However, in Deep Intense Rock, Storm Runner and Blackout Riff still both appear because Blackout Riff's raw score advantage over the next competitor is 1.69 points — larger than the 0.75 genre-group penalty can overcome. Fully resolving this would require either raising the genre-group penalty above the score gap (which would distort results in other profiles) or introducing a hard cap that limits one song per genre group regardless of score, which is a more structural change to the selection logic.
+**What didn't work initially:** The conflicting-preferences adversarial case originally failed because the LLM smoothed out the contradiction before it reached the scoring engine — producing moderate preference values instead of extreme conflicting ones — so the scoring results looked normal and no warning fired. The fix was to detect the conflict directly from the extracted preferences dictionary before inspecting any scores.
 
 ---
 
-## 8. Future Work
+## 8. AI Collaboration
 
-The most impactful improvement would be a larger and more balanced dataset. Adding at least three songs per genre would break the one-song-per-genre lock-in and give the scoring logic room to actually compare options within a genre rather than defaulting to the only available match.
+**Where AI collaboration helped:** When designing the four-tool pipeline, I originally planned to combine confidence evaluation and response formatting into a single step. A suggestion to separate them — keeping `evaluate_confidence` as a standalone, LLM-free tool that runs before the formatting call — turned out to be the right decision. It meant the confidence logic could be unit-tested independently without any LLM calls, and the reasoning trace in the UI could show confidence as a distinct step with its own input and output rather than a side effect of response generation.
 
-Beyond data, the hand-coded weights are a limitation. In a real system, weights would be learned from user feedback — if someone skips a song despite a high score, that's a signal the weight for that feature was wrong. Starting from fixed numbers works for a classroom demo but wouldn't scale to real users with diverse tastes.
-
-Collaborative filtering would also open up a different kind of recommendation entirely. Right now the system only knows about audio features — it has no idea that people who like lofi also tend to enjoy ambient music, or that jazz and blues listeners often overlap. Learning from patterns across many users would let the system surface surprising but accurate recommendations that pure feature-matching would never find.
-
-Finally, the system currently gives every user the same five results regardless of how many good matches exist. Adding a diversity mechanism — for example, capping how many songs from the same genre can appear in one list — would make the top five feel less repetitive when one genre dominates the catalog.
+**Where AI gave a flawed suggestion:** An early suggestion to use Streamlit's built-in `st.progress()` component for the song score bars worked functionally but gave no control over bar color. Streamlit's default styling produced a color that conflicted with the amber design theme and visually implied a warning state for high-scoring songs — the opposite of the intended effect. The fix required replacing the component entirely with custom HTML and a CSS gradient bar. The suggestion wasn't wrong about what the component does, but it didn't account for the styling constraints of the design.
 
 ---
 
 ## 9. Personal Reflection
 
-What was your biggest learning moment during this project?
-Building this made it clear how much a recommendation system depends on the quality of its data before any algorithm comes into play. Spending time tuning weights felt productive, but the weight experiments showed that no amount of adjustment could compensate for a catalog with only one song per genre — the data ceiling was always the real constraint.
+**What this project taught me about AI systems:** LLMs don't fail loudly. In a purely deterministic system, every bug produces a wrong number, a crash, or an empty result — something obviously incorrect. With an LLM in the pipeline, the model can extract the wrong genre, the scoring engine runs correctly, the confidence looks reasonable, and the output is just slightly off in a way that only registers if you already know the expected answer. Quiet failures are harder to catch than loud ones, and they require a different kind of testing — one that probes the interpretation layer, not just the output.
 
-How did using AI tools help you, and when did you need to double-check them?
-Claude Code accelerated the implementation, but I had to correct the reasons output format and push back on the initial weight suggestions — the tool needed direction, not just a prompt.
+**How building an agentic system changed how I think about reliability:** Splitting the pipeline into four named, logged tools wasn't just a design preference — it was the only practical way to reason about which part of the system was responsible for a bad output. When a result looked wrong, I could open the reasoning trace and see whether the LLM had misunderstood the input (Tool 1), the scoring engine had correctly ranked a poor catalog match (Tool 2), the confidence evaluator had misjudged result quality (Tool 3), or the response generator had described the songs inaccurately (Tool 4). Without that separation, debugging would have required treating the entire system as a single opaque unit. Reliability in agentic systems isn't a property of the model — it's a property of the architecture around it.
 
-What surprised you about how simple algorithms can still "feel" like recommendations?
-The most interesting moment was the Classical adversarial test, which showed that a genre label alone can outweigh five audio features combined and push a completely mismatched song to the top of the list. That felt surprising at first, but it mirrors something real: streaming apps also over-rely on genre and playlist labels in ways that can feel off when you actually listen to the results.
-
-What would you try next if you extended this project?
-The transparency of the reasons output — seeing every contribution printed line by line — made it much easier to debug and understand the system than if it had just returned a ranked list with no explanation. That kind of explainability feels like something real recommendation systems should offer more of.
+**What I would do differently:** I would write the evaluation harness before writing the orchestrator. Defining pass/fail conditions for edge cases forces clarity about what the system is supposed to do that implementation alone doesn't require. I would also instrument the LLM calls to log every raw response alongside every parsed output from the start — the hardest debugging moments came from trying to reconstruct what the model had actually returned versus what the JSON parser had extracted from it.

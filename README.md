@@ -101,6 +101,8 @@ python tests/test_harness.py
 
 ## Sample Interactions
 
+![TuneFit 2.0 Demo](assets/demo_screenshot.png)
+
 **Example 1 — Chill study session**
 > *"play me something chill and acoustic for studying"*
 
@@ -185,7 +187,7 @@ If I built this again, I would instrument the LLM calls to log every raw respons
 
 **Misuse potential:** TuneFit 2.0 is a prototype with a tiny catalog and is not suitable for production use. Serving real users with 18 songs and a single-developer scoring function would produce systematic mismatch for most musical preferences. The design makes this transparent — confidence scores and reasoning traces are visible in the UI — which allows users to evaluate results critically rather than accepting them uncritically.
 
-**What surprised me during testing:** The adversarial conflicting-preferences case was expected to produce low confidence but the LLM consistently smoothed out the contradiction before it reached the scoring engine, producing moderate target values rather than extreme conflicting ones. The system never received the intended adversarial input.
+**What surprised me during testing:** The adversarial conflicting-preferences case originally failed because the LLM smoothed out the contradiction before it reached the scoring engine — producing moderate preference values rather than extreme conflicting ones — so the scoring results looked normal and no warning fired. The fix was to detect the conflict directly from the extracted preferences (high energy + high acousticness) before inspecting any scores, which surfaces a warning and caps confidence regardless of what the LLM extracted.
 
 **Where AI collaboration helped:** When designing the four-tool architecture, a suggestion to make the confidence evaluator a standalone tool rather than embedding it inside the response formatter was immediately useful — it meant confidence assessment could be tested independently and the warning logic could be unit-tested without running an LLM.
 
@@ -195,7 +197,7 @@ If I built this again, I would instrument the LLM calls to log every raw respons
 
 ## Video Walkthrough
 
-[Loom walkthrough — to be added]
+[Watch the Loom walkthrough](https://www.loom.com/share/2ef114e2a4c04871ae6ae021e10f7dd9)
 
 ---
 
